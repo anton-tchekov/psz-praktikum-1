@@ -1,411 +1,285 @@
 use macroquad::prelude::*;
+use ::rand::prelude::*;
 
-const MAX_W: usize = 30;
-const MAX_H: usize = 16;
-const MAX_N: usize = MAX_W * MAX_H;
+
 const TILE_SIZE: f32 = 32.0;
-const OX: f32 = 10.0;
-const OY: f32 = 50.0;
+const TILE_COUNT: i32 = 10;
+const TILE_SPACING: f32 = 2.0;
+const X_OFFSET: f32 = 100.0;
+const Y_OFFSET: f32 = 100.0;
+const MINE_PROBABILITY: f64 = 0.1;
 
-#[derive(Copy, Clone, PartialEq)]
-enum TileState
-{
-	Hidden,
-	Revealed,
-	Flagged
+/// Atlas is 4×3 tiles of 32×32:
+/// [1][2][3][4]
+/// [5][6][7][8]
+/// [empty][hidden][mine][flag]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TileState {
+    Number(u8), // 1..=8
+    Empty,
+    Hidden,
+    Mine,
+    Flag,
 }
 
-#[derive(Copy, Clone, PartialEq)]
-enum TileKind
-{
-	Mine,
-	Digit(u8)
+impl TileState {
+    fn atlas_offset(self) -> (f32, f32) {
+        let (col, row) = match self {
+            TileState::Number(n @ 1..=8) => ((n - 1) % 4, (n - 1) / 4),
+            TileState::Number(_) => (0, 2),
+            TileState::Empty => (0, 2),
+            TileState::Hidden => (1, 2),
+            TileState::Mine => (2, 2),
+            TileState::Flag => (3, 2),
+        };
+        (col as f32 * TILE_SIZE, row as f32 * TILE_SIZE)
+    }
 }
 
-#[derive(Copy, Clone)]
-struct Tile
-{
-	state: TileState,
-	kind: TileKind
+struct Tile {
+    x: f32,
+    y: f32,
+    state: TileState,
+    revealed: bool,
+    flagged: bool,
 }
 
-enum Mode
-{
-	Menu,
-	Play,
-	Win,
-	Lose
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GameResult {
+    Won,
+    Lost,
 }
-
-struct Difficulty<'a>
-{
-	label: &'a str,
-	num_mines: usize,
-	board_w: usize,
-	board_h: usize,
-	color: Color
-}
-
-const DIFFICULTIES: [Difficulty; 3] =
-[
-	Difficulty {
-		label: "Beginner",
-		num_mines: 10,
-		board_w: 9,
-		board_h: 9,
-		color: LIME
-	},
-	Difficulty {
-		label: "Intermediate",
-		num_mines: 40,
-		board_w: 16,
-		board_h: 16,
-		color: YELLOW
-	},
-	Difficulty {
-		label: "Expert",
-		num_mines: 99,
-		board_w: 30,
-		board_h: 16,
-		color: RED
-	}
-];
 
 #[macroquad::main("Minesweeper")]
-async fn main()
-{
-	let texture: Texture2D = load_texture("minesweeper.png").await.unwrap();
+async fn main() {
+    let texture: Texture2D = load_texture("minesweeper.png").await.unwrap();
+    texture.set_filter(FilterMode::Nearest);
+    let mut tiles = generate_board();
+    let mut result: Option<GameResult> = None;
 
-	let mut tiles: [Tile; MAX_N] = [Tile { state: TileState::Hidden, kind: TileKind::Digit(0) }; MAX_N];
+    loop {
+        clear_background(BLACK);
+        draw_text("PSZ-01: Minesweeper", 10.0, 25.0, 30.0, WHITE);
 
-	let mut selected = 0;
-	let mut mode = Mode::Menu;
-	let mut d = &DIFFICULTIES[0];
-	let mut first_click = false;
+        if result.is_none() {
+            if let Some(tile) = process_mouse_input(&mut tiles) {
+                if check_loss(tile) {
+                    reveal_all_mines(&mut tiles);
+                    result = Some(GameResult::Lost);
+                } else if check_win(&tiles) {
+                    result = Some(GameResult::Won);
+                }
+            }
+        } else if is_mouse_button_pressed(MouseButton::Left)
+            || is_key_pressed(KeyCode::Space)
+            || is_key_pressed(KeyCode::Enter)
+        {
+            tiles = generate_board();
+            result = None;
+        }
 
-	loop
-	{
-		clear_background(BLACK);
-		draw_text("PSZ-01: Minesweeper", 10.0, 25.0, 30.0, GREEN);
+        for tile in &tiles {
+            draw_tile(tile, &texture);
+        }
 
-		match mode
-		{
-			Mode::Menu =>
-			{
-				if is_key_pressed(KeyCode::Enter)
-				{
-					mode = Mode::Play;
-					d = &DIFFICULTIES[selected];
-					first_click = true;
-					clear_board(&mut tiles, d);
-				}
+        if let Some(result) = result {
+            draw_end_screen(result);
+        }
 
-				if is_key_pressed(KeyCode::Escape)
-				{
-					break;
-				}
-
-				mode_menu(&mut selected);
-			},
-			Mode::Play =>
-			{
-				let mouse_pos = mouse_position();
-
-				if is_key_pressed(KeyCode::Escape)
-				{
-					mode = Mode::Menu;
-				}
-
-				if is_mouse_button_pressed(MouseButton::Left)
-				{
-					if let Some((x, y)) = get_clicked_tile(d, mouse_pos)
-					{
-						if first_click
-						{
-							randomize_board(&mut tiles, d, x, y);
-							first_click = false;
-						}
-
-						if reveal(&mut tiles, d, x as i32, y as i32)
-						{
-							show_all_mines(&mut tiles, d);
-							mode = Mode::Lose;
-						}
-						else if check_win(&tiles, d)
-						{
-							mode = Mode::Win;
-						}
-					}
-				}
-				else if is_mouse_button_pressed(MouseButton::Right)
-				{
-					if let Some((x, y)) = get_clicked_tile(d, mouse_pos)
-					{
-						let tile = &mut tiles[y * d.board_w + x];
-						if tile.state == TileState::Hidden
-						{
-							tile.state = TileState::Flagged;
-						}
-						else if tile.state == TileState::Flagged
-						{
-							tile.state = TileState::Hidden;
-						}
-					}
-				}
-
-				draw_board(&tiles, d, &texture);
-			},
-			Mode::Win =>
-			{
-				if is_key_pressed(KeyCode::Escape)
-				{
-					mode = Mode::Menu;
-				}
-
-				draw_board(&tiles, d, &texture);
-				draw_text_center(d, "=== YOU WIN ===", WHITE, 50);
-			},
-			Mode::Lose =>
-			{
-				if is_key_pressed(KeyCode::Escape)
-				{
-					mode = Mode::Menu;
-				}
-
-				draw_board(&tiles, d, &texture);
-				draw_text_center(d, "=== YOU LOSE ===", RED, 50);
-			}
-		}
-
-		next_frame().await
-	}
+        next_frame().await
+    }
 }
 
-fn draw_text_center(d: &Difficulty, s: &str, color: Color, size: u16)
-{
-	let center = get_text_center(s, None, size, 1.0, 0.0);
-	draw_text(s,
-		OX + d.board_w as f32 * TILE_SIZE / 2.0 - center.x,
-		OY + d.board_h as f32 * TILE_SIZE / 2.0 - center.y,
-		size as f32, color);
+fn reveal_all_mines(tiles: &mut [Tile]) {
+    for tile in tiles {
+        if tile.state == TileState::Mine {
+            tile.flagged = false;
+            tile.revealed = true;
+        }
+    }
 }
 
-fn get_clicked_tile(d: &Difficulty, mouse_pos: (f32, f32)) -> Option<(usize, usize)>
-{
-	let mx = mouse_pos.0;
-	let my = mouse_pos.1;
-	if mx >= OX && mx < OX + TILE_SIZE * d.board_w as f32 &&
-		my >= OY && my < OY + TILE_SIZE * d.board_h as f32
-	{
-		let x = ((mx - OX) / TILE_SIZE) as usize;
-		let y = ((my - OY) / TILE_SIZE) as usize;
+fn draw_end_screen(result: GameResult) {
+    let (message, color) = match result {
+        GameResult::Won => ("You won!", GREEN),
+        GameResult::Lost => ("You lost!", RED),
+    };
 
-		return Some((x, y));
-	}
+    let overlay = Color::new(0.0, 0.0, 0.0, 0.55);
+    draw_rectangle(0.0, 0.0, screen_width(), screen_height(), overlay);
 
-	None
+    let msg_size = 50.0;
+    let msg_width = measure_text(message, None, msg_size as u16, 1.0).width;
+    draw_text(
+        message,
+        (screen_width() - msg_width) / 2.0,
+        screen_height() / 2.0 - 10.0,
+        msg_size,
+        color,
+    );
+
+    let hint = "Click or press Space to play again";
+    let hint_size = 24.0;
+    let hint_width = measure_text(hint, None, hint_size as u16, 1.0).width;
+    draw_text(
+        hint,
+        (screen_width() - hint_width) / 2.0,
+        screen_height() / 2.0 + 30.0,
+        hint_size,
+        WHITE,
+    );
 }
 
-fn _reveal(tiles: &mut [Tile], d: &Difficulty, x: i32, y: i32)
-{
-	if x < 0 || y < 0 || x >= d.board_w as i32 || y >= d.board_h as i32
-	{
-		return;
-	}
-
-	let tile = &mut tiles[y as usize * d.board_w + x as usize];
-	if tile.state != TileState::Hidden || tile.kind == TileKind::Mine
-	{
-		return;
-	}
-
-	tile.state = TileState::Revealed;
-
-	if tile.kind != TileKind::Digit(0)
-	{
-		return;
-	}
-
-	_reveal(tiles, d, x - 1, y);
-	_reveal(tiles, d, x + 1, y);
-	_reveal(tiles, d, x, y - 1);
-	_reveal(tiles, d, x, y + 1);
+fn tile_at(tiles: &[Tile], mouse_pos: (f32, f32)) -> Option<usize> {
+    tiles.iter().position(|tile| {
+        tile.x <= mouse_pos.0
+            && tile.x + TILE_SIZE >= mouse_pos.0
+            && tile.y <= mouse_pos.1
+            && tile.y + TILE_SIZE >= mouse_pos.1
+    })
 }
 
-fn reveal(tiles: &mut [Tile], d: &Difficulty, x: i32, y: i32) -> bool
-{
-	let tile = &mut tiles[y as usize * d.board_w + x as usize];
-	if tile.kind == TileKind::Mine
-	{
-		return true;
-	}
-
-	_reveal(tiles, d, x, y);
-	false
+fn process_mouse_input(tiles: &mut Vec<Tile>) -> Option<&mut Tile> {
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let mouse_pos = mouse_position();
+        if let Some(index) = tile_at(tiles, mouse_pos) {
+            if !tiles[index].flagged {
+                reveal_from(tiles, index);
+            }
+            return Some(&mut tiles[index]);
+        }
+    } else if is_mouse_button_pressed(MouseButton::Right) {
+        let mouse_pos = mouse_position();
+        if let Some(index) = tile_at(tiles, mouse_pos) {
+            let tile = &mut tiles[index];
+            if !tile.revealed {
+                tile.flagged = !tile.flagged;
+            }
+            return Some(tile);
+        }
+    }
+    None
 }
 
-fn check_win(tiles: &[Tile], d: &Difficulty) -> bool
-{
-	let mut cnt = 0;
-	for y in 0..d.board_h
-	{
-		for x in 0..d.board_w
-		{
-			if tiles[y * d.board_w + x].state != TileState::Revealed
-			{
-				cnt += 1;
-			}
-		}
-	}
+/// Reveal a cell. Empty cells flood-fill through neighbors and also reveal
+/// bordering numbered cells (classic Minesweeper behavior).
+fn reveal_from(tiles: &mut [Tile], index: usize) {
+    if tiles[index].revealed || tiles[index].flagged {
+        return;
+    }
 
-	cnt == d.num_mines
+    tiles[index].revealed = true;
+
+    if tiles[index].state != TileState::Empty {
+        return;
+    }
+
+    let col = index as i32 / TILE_COUNT;
+    let row = index as i32 % TILE_COUNT;
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let nx = col + dx;
+            let ny = row + dy;
+            if (0..TILE_COUNT).contains(&nx) && (0..TILE_COUNT).contains(&ny) {
+                reveal_from(tiles, (nx * TILE_COUNT + ny) as usize);
+            }
+        }
+    }
 }
 
-fn show_all_mines(tiles: &mut [Tile], d: &Difficulty)
-{
-	for y in 0..d.board_h
-	{
-		for x in 0..d.board_w
-		{
-			let tile = &mut tiles[y * d.board_w + x];
-			if tile.kind == TileKind::Mine
-			{
-				tile.state = TileState::Revealed;
-			}
-		}
-	}
+fn check_loss(tile: &Tile) -> bool {
+    if tile.revealed && tile.state == TileState::Mine {
+        return true;
+    }
+    
+    false
 }
 
-fn mode_menu(selected: &mut usize)
-{
-	if is_key_pressed(KeyCode::Up) && *selected > 0
-	{
-		*selected -= 1;
-	}
-
-	if is_key_pressed(KeyCode::Down) && *selected < DIFFICULTIES.len() - 1
-	{
-		*selected += 1;
-	}
-
-	let mut y = 100.0;
-	draw_text("NEW GAME - Select Difficulty", 10.0, y, 30.0, WHITE);
-	y += 50.0;
-	for (i, d) in DIFFICULTIES.into_iter().enumerate()
-	{
-		draw_text(format!("{}{}: {}x{} Board, {} Mines",
-			if *selected == i { "> " } else { "  " },
-			d.label, d.board_w, d.board_h, d.num_mines), 10.0, y, 30.0,
-			if *selected == i { d.color } else { WHITE });
-		y += 30.0;
-	}
+fn check_win(tiles: &[Tile]) -> bool {
+    for tile in tiles {
+        if !tile.revealed && tile.state != TileState::Mine {
+            return false;
+        }
+    }
+    true
 }
 
-fn draw_texture(texture: &Texture2D, src: Rect, dx: f32, dy: f32)
-{
-	draw_texture_ex(texture, dx, dy, WHITE,
-		DrawTextureParams {
-			dest_size: None,
-			source: Some(src),
-			rotation: 0.0,
-			flip_x: false,
-			flip_y: false,
-			pivot: None
-		});
+fn generate_board() -> Vec<Tile> {
+    let mut rng = ::rand::thread_rng();
+
+    let mut mine_count = ((TILE_COUNT * TILE_COUNT) as f64 * MINE_PROBABILITY) as i32;
+    let mut mine_positions = Vec::new();
+    while mine_count > 0 {
+        let x = rng.gen_range(0..TILE_COUNT);
+        let y = rng.gen_range(0..TILE_COUNT);
+        if !mine_positions.contains(&(x, y)) {
+            mine_positions.push((x, y));
+            mine_count -= 1;
+        }
+    }
+    
+    let mut tiles = Vec::new();
+    for x in 0..TILE_COUNT {
+        for y in 0..TILE_COUNT {
+            let is_mine = mine_positions.contains(&(x, y));
+            let state = if is_mine {
+                TileState::Mine
+            } else {
+                match count_adjacent_mines(x, y, &mine_positions) {
+                    0 => TileState::Empty,
+                    n => TileState::Number(n),
+                }
+            };
+
+            tiles.push(Tile {
+                x: x as f32 * TILE_SIZE + x as f32 * TILE_SPACING + X_OFFSET,
+                y: y as f32 * TILE_SIZE + y as f32 * TILE_SPACING + Y_OFFSET,
+                state,
+                revealed: false,
+                flagged: false,
+            });
+        }
+    }
+    tiles
 }
 
-fn draw_tile(texture: &Texture2D, tile_id: i32, px: f32, py: f32)
-{
-	let tx = (tile_id % 4) as f32 * TILE_SIZE;
-	let ty = (tile_id / 4) as f32 * TILE_SIZE;
-
-	draw_texture(texture, Rect::new(tx, ty, TILE_SIZE, TILE_SIZE), px, py);
+fn count_adjacent_mines(x: i32, y: i32, mine_positions: &[(i32, i32)]) -> u8 {
+    let mut count = 0u8;
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            if mine_positions.contains(&(x + dx, y + dy)) {
+                count += 1;
+            }
+        }
+    }
+    count
 }
 
-fn draw_board(tiles: &[Tile], d: &Difficulty, texture: &Texture2D)
-{
-	for y in 0..d.board_h
-	{
-		for x in 0..d.board_w
-		{
-			let tile = tiles[y * d.board_w + x];
-			let tile_id = match tile.state
-			{
-				TileState::Hidden => 9,
-				TileState::Flagged => 11,
-				TileState::Revealed => match tile.kind
-				{
-					TileKind::Mine => 10,
-					TileKind::Digit(0) => 8,
-					TileKind::Digit(n) => n as i32 - 1
-				}
-			};
-
-			let px = x as f32 * TILE_SIZE + OX;
-			let py = y as f32 * TILE_SIZE + OY;
-			draw_tile(texture, tile_id, px, py);
-		}
-	}
-}
-
-fn inc_tile(tiles: &mut [Tile], d: &Difficulty, x: i32, y: i32)
-{
-	if x < 0 || y < 0 || x >= d.board_w as i32 || y >= d.board_h as i32
-	{
-		return;
-	}
-
-	let tile = &mut tiles[y as usize * d.board_w + x as usize];
-	tile.kind = match tile.kind
-	{
-		TileKind::Mine => TileKind::Mine,
-		TileKind::Digit(n) => TileKind::Digit(n + 1)
-	};
-}
-
-fn place_mine(tiles: &mut [Tile], d: &Difficulty, x: usize, y: usize)
-{
-	tiles[y * d.board_w + x].kind = TileKind::Mine;
-	let x = x as i32;
-	let y = y as i32;
-	inc_tile(tiles, d, x - 1, y - 1);
-	inc_tile(tiles, d, x,     y - 1);
-	inc_tile(tiles, d, x + 1, y - 1);
-	inc_tile(tiles, d, x - 1, y);
-	inc_tile(tiles, d, x + 1, y);
-	inc_tile(tiles, d, x - 1, y + 1);
-	inc_tile(tiles, d, x,     y + 1);
-	inc_tile(tiles, d, x + 1, y + 1);
-}
-
-fn clear_board(tiles: &mut [Tile], d: &Difficulty)
-{
-	for y in 0..d.board_h
-	{
-		for x in 0..d.board_w
-		{
-			tiles[y * d.board_w + x] =
-				Tile { state: TileState::Hidden, kind: TileKind::Digit(0) };
-		}
-	}
-}
-
-fn randomize_board(tiles: &mut [Tile], d: &Difficulty,
-	x_click: usize, y_click: usize)
-{
-	for _ in 0..d.num_mines
-	{
-		let mut x;
-		let mut y;
-		while
-		{
-			x = rand::gen_range(0, d.board_w);
-			y = rand::gen_range(0, d.board_h);
-			tiles[y * d.board_w + x].kind == TileKind::Mine ||
-				(x == x_click && y == y_click)
-		}
-		{}
-
-		place_mine(tiles, d, x, y);
-	}
+fn draw_tile(tile: &Tile, texture: &Texture2D) {
+    // `state` is the underlying cell; Hidden/Flag are display overlays.
+    let state = if tile.flagged {
+        TileState::Flag
+    } else if tile.revealed {
+        tile.state
+    } else {
+        TileState::Hidden
+    };
+    let (sx, sy) = state.atlas_offset();
+    draw_texture_ex(
+        texture,
+        tile.x,
+        tile.y,
+        WHITE,
+        DrawTextureParams {
+            dest_size: Some(vec2(TILE_SIZE, TILE_SIZE)),
+            source: Some(Rect::new(sx, sy, TILE_SIZE, TILE_SIZE)),
+            ..Default::default()
+        },
+    );
 }
