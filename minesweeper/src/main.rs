@@ -348,6 +348,18 @@ fn draw_board(tiles: &[Tile], d: &Difficulty, texture: &Texture2D)
 	}
 }
 
+fn clear_board(tiles: &mut [Tile], d: &Difficulty)
+{
+	for y in 0..d.board_h
+	{
+		for x in 0..d.board_w
+		{
+			tiles[y * d.board_w + x] =
+				Tile { state: TileState::Hidden, kind: TileKind::Digit(0) };
+		}
+	}
+}
+
 fn inc_tile(tiles: &mut [Tile], d: &Difficulty, x: i32, y: i32)
 {
 	if x < 0 || y < 0 || x >= d.board_w as i32 || y >= d.board_h as i32
@@ -376,18 +388,6 @@ fn place_mine(tiles: &mut [Tile], d: &Difficulty, x: usize, y: usize)
 	inc_tile(tiles, d, x - 1, y + 1);
 	inc_tile(tiles, d, x,     y + 1);
 	inc_tile(tiles, d, x + 1, y + 1);
-}
-
-fn clear_board(tiles: &mut [Tile], d: &Difficulty)
-{
-	for y in 0..d.board_h
-	{
-		for x in 0..d.board_w
-		{
-			tiles[y * d.board_w + x] =
-				Tile { state: TileState::Hidden, kind: TileKind::Digit(0) };
-		}
-	}
 }
 
 fn randomize_board(tiles: &mut [Tile], d: &Difficulty,
