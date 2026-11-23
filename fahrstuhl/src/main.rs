@@ -144,7 +144,7 @@ async fn main()
 		draw_scene(&cabins, &floors);
 		for (i, skin) in skins.iter().enumerate()
 		{
-			draw_player(vec3(i as f32, 0.0, 0.0), 0.03, skin.slim, &skin.texture);
+			draw_player(vec3(i as f32, 0.0, 0.0), i as f32 * 45.0_f32.to_radians(), skin.slim, &skin.texture);
 			draw_digit(vec3(i as f32, 1.0, 0.0), WHITE, i % 10, 0.1);
 		}
 

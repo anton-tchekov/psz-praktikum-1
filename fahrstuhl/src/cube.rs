@@ -7,7 +7,7 @@ pub fn draw_cube_colored(a: Vec3, b: Vec3, color: Color)
 	draw_cube(a, b, None, color);
 }
 
-pub fn draw_cube_textured(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3,
+pub fn draw_cube_textured(rotmat: Mat4, pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3,
 	atlas: &Texture2D, rect: [Rect; 6], scale: f32)
 {
 	let rotation_matrix = Mat4::from_rotation_z(rotation.z) *
@@ -45,7 +45,7 @@ pub fn draw_cube_textured(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3
 		let base = (face_index * 4) as u16;
 		for i in 0..4
 		{
-			let p = transform * vec4(corners[i].x, corners[i].y, corners[i].z, 1.0);
+			let p = rotmat * transform * vec4(corners[i].x, corners[i].y, corners[i].z, 1.0);
 			vertices.push(Vertex::new2(p.truncate(), uvs[i], WHITE));
 		}
 

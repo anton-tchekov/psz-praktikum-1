@@ -161,7 +161,7 @@ const LAYER_OUTER: Layer = Layer {
 	right_arm_slim: RIGHT_ARM2_TEX_SLIM
 };
 
-fn draw_layer(pos: Vec3, size: f32, mut scale: f32, arm_thin: bool,
+fn draw_layer(pos: Vec3, rot: f32, size: f32, mut scale: f32, arm_thin: bool,
 	texture: &Texture2D, layer: &Layer)
 {
 	let head_size = 8.0 * size;
@@ -174,38 +174,43 @@ fn draw_layer(pos: Vec3, size: f32, mut scale: f32, arm_thin: bool,
 	let body_thick = 4.0 * size;
 	let body_height = 12.0 * size;
 
+	let transform = Mat4::from_translation(pos) *
+		Mat4::from_rotation_y(rot) * Mat4::from_translation(-pos);
+
+	let angle = (get_time() * 5.0).sin() as f32 * 30.0_f32.to_radians();
+
 	// Legs
-	draw_cube_textured(pos + vec3(-leg_width, 0.0, -leg_width / 2.0),
+	draw_cube_textured(transform, pos + vec3(-leg_width, 0.0, -leg_width / 2.0),
 		vec3(leg_width, leg_height, leg_width),
-		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
+		pos + vec3(0.0, leg_height, 0.0), vec3(angle, 0.0, 0.0),
 		texture, layer.left_leg, scale);
 
 	scale += 0.0001;
 
-	draw_cube_textured(pos + vec3(0.0, 0.0, -leg_width / 2.0),
+	draw_cube_textured(transform, pos + vec3(0.0, 0.0, -leg_width / 2.0),
 		vec3(leg_width, leg_height, leg_width),
-		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
+		pos + vec3(0.0, leg_height, 0.0), vec3(-angle, 0.0, 0.0),
 		texture, layer.right_leg, scale);
 
 	scale += 0.0001;
 
 	// Arms
-	draw_cube_textured(pos + vec3(-leg_width - arm_wide, leg_height, -arm_thick / 2.0),
+	draw_cube_textured(transform, pos + vec3(-leg_width - arm_wide, leg_height, -arm_thick / 2.0),
 		vec3(arm_wide, arm_height, arm_thick),
-		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
+		pos + vec3(0.0, leg_height + body_height - arm_thick / 2.0, 0.0), vec3(-angle, 0.0, 0.0),
 		texture, if arm_thin { layer.right_arm_slim } else { layer.right_arm }, scale);
 
 	scale += 0.0001;
 
-	draw_cube_textured(pos + vec3(leg_width, leg_height, -arm_thick / 2.0),
+	draw_cube_textured(transform, pos + vec3(leg_width, leg_height, -arm_thick / 2.0),
 		vec3(arm_wide, arm_height, arm_thick),
-		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
+		pos + vec3(0.0, leg_height + body_height - arm_thick / 2.0, 0.0), vec3(angle, 0.0, 0.0),
 		texture, if arm_thin { layer.left_arm_slim } else { layer.left_arm }, scale);
 
 	scale += 0.0001;
 
 	// Body
-	draw_cube_textured(pos + vec3(-body_width / 2.0, leg_height, -body_thick / 2.0),
+	draw_cube_textured(transform, pos + vec3(-body_width / 2.0, leg_height, -body_thick / 2.0),
 		vec3(body_width, body_height, body_thick),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
 		texture, layer.body, scale);
@@ -213,14 +218,15 @@ fn draw_layer(pos: Vec3, size: f32, mut scale: f32, arm_thin: bool,
 	scale += 0.0001;
 
 	// Head
-	draw_cube_textured(pos + vec3(-head_size / 2.0, leg_height + body_height, -head_size / 2.0),
+	draw_cube_textured(transform, pos + vec3(-head_size / 2.0, leg_height + body_height, -head_size / 2.0),
 		vec3(head_size, head_size, head_size),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
 		texture, layer.head, scale);
 }
 
-pub fn draw_player(pos: Vec3, size: f32, arm_thin: bool, texture: &Texture2D)
+pub fn draw_player(pos: Vec3, rot: f32, arm_thin: bool, texture: &Texture2D)
 {
-	draw_layer(pos, size, 0.0, arm_thin, texture, &LAYER_INNER);
-	draw_layer(pos, size, 0.01, arm_thin, texture, &LAYER_OUTER);
+	let size = 0.03;
+	draw_layer(pos, rot, size, 0.0, arm_thin, texture, &LAYER_INNER);
+	draw_layer(pos, rot, size, 0.01, arm_thin, texture, &LAYER_OUTER);
 }
