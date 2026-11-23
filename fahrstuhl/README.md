@@ -1,10 +1,6 @@
 # TODO
 
-- Skin Rendering
-	- Details
-	- Gaps/Glitches
-	- Walk Animation
-	- Optimized Mesh Storage
-
+- Skin Rendering Details (Second Layer)
+- Player Walk Animation
 - Spawning, Movement, Target
-- Elevator Buttons
+- Elevator Algorithm
