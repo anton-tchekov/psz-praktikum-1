@@ -1,7 +1,7 @@
 use macroquad::prelude::*;
 
 const NUM_CABINS: usize = 3;
-const NUM_LEVELS: usize = 4;
+const NUM_FLOORS: usize = 4;
 
 const BG_COLOR: Color = Color::new(0.02, 0.12, 0.18, 1.0);
 const DOOR_COLOR: Color = Color::new(0.04, 0.24, 0.36, 1.0);
@@ -20,7 +20,7 @@ const DOOR_SPEED: f32 = 2.5;
 const CABIN_SPEED: f32 = 2.5;
 
 const CABIN_STEP: f32 = 2.0;
-const LEVEL_HEIGHT: f32 = 3.0;
+const FLOOR_HEIGHT: f32 = 3.0;
 
 const FLOOR_D: f32 = 3.0;
 
@@ -36,6 +36,16 @@ enum CabinState
 	Moving,
 	DoorOpening,
 	Stopped
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum PassengerState
+{
+	Idle,
+	Entering,
+	Choosing,
+	Riding,
+	Leaving
 }
 
 #[derive(Copy, Clone)]
@@ -148,12 +158,6 @@ fn draw_my_cube(a: Vec3, b: Vec3)
 	draw_cube(a, b, None, BG_COLOR);
 }
 
-/*fn draw_tex_cube(a: Vec3, b: Vec3)
-{
-	let a = a + b * 0.5;
-	draw_cube(a, b, None, RED);
-}*/
-
 fn draw_tex_cube(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3,
 	atlas: &Texture2D, rect: [Rect; 6])
 {
@@ -166,8 +170,8 @@ fn draw_tex_cube(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3,
 	let (x0, y0, z0) = (pos.x, pos.y, pos.z);
 	let (x1, y1, z1) = (pos.x + size.x, pos.y + size.y, pos.z + size.z);
 
-	// Rectangle order: front, back, right, left, top, bottom
-	let faces: [[Vec3; 4]; 6] = [
+	let faces: [[Vec3; 4]; 6] =
+	[
 		[vec3(x0, y1, z1), vec3(x0, y0, z1), vec3(x1, y0, z1), vec3(x1, y1, z1)], // Front (+Z)
 		[vec3(x1, y1, z0), vec3(x1, y0, z0), vec3(x0, y0, z0), vec3(x0, y1, z0)], // Back (-Z)
 		[vec3(x1, y1, z1), vec3(x1, y0, z1), vec3(x1, y0, z0), vec3(x1, y1, z0)], // Right (+X)
@@ -218,12 +222,12 @@ fn draw_cube_with_outline(a: Vec3, b: Vec3, color: Color)
 
 fn draw_inner_outline(pos: Vec3, h0: f32, h1: f32)
 {
-	let XS = WALL + EPS;
-	let XDS = DOOR_X + EPS;
-	let XDE = WIDTH - DOOR_X - EPS;
-	let XE = WIDTH - WALL - EPS;
-	let YS = WALL + EPS;
-	let YE = DEPTH - WALL - EPS;
+	const XS: f32 = WALL + EPS;
+	const XDS: f32 = DOOR_X + EPS;
+	const XDE: f32 = WIDTH - DOOR_X - EPS;
+	const XE: f32 = WIDTH - WALL - EPS;
+	const YS: f32 = WALL + EPS;
+	const YE: f32 = DEPTH - WALL - EPS;
 
 	let p =
 	[
@@ -246,9 +250,8 @@ fn draw_inner_outline(pos: Vec3, h0: f32, h1: f32)
 		draw_line_3d(pos + vec3(a.x, h1, a.y), pos + vec3(b.x, h1, b.y), WHITE);
 	}
 
-	for i in 0..p.len() - 1
+	for a in p.iter().take(p.len() - 1)
 	{
-		let a = p[i];
 		draw_line_3d(pos + vec3(a.x, h0, a.y), pos + vec3(a.x, h1, a.y), WHITE);
 	}
 }
@@ -299,115 +302,122 @@ fn draw_elevator(pos: Vec3, door: f32)
 	draw_door(pos, door, DOOR_COLOR);
 }
 
-const fn t(x: f32, y: f32, w: f32, h: f32) -> Rect
+const fn t(x: i32, y: i32, w: i32, h: i32) -> Rect
 {
-	let TW = 64.0;
-	Rect::new(x / TW, y / TW, w / TW, h / TW)
+	const TW: f32 = 64.0;
+	Rect::new(x as f32 / TW, y as f32 / TW, w as f32 / TW, h as f32 / TW)
 }
 
 fn draw_person(pos: Vec3, scale: f32, arm_thin: bool, texture: &Texture2D)
 {
-	let HEAD_SIZE = 8.0 * scale;
-	let ARM_WIDE = if arm_thin { 3.0 } else { 4.0 } * scale;
-	let ARM_THICK = 4.0 * scale;
-	let ARM_HEIGHT = 12.0 * scale;
-	let LEG_WIDTH = 4.0 * scale;
-	let LEG_HEIGHT = 12.0 * scale;
-	let BODY_WIDTH = 8.0 * scale;
-	let BODY_THICK = 4.0 * scale;
-	let BODY_HEIGHT = 12.0 * scale;
+	let head_size = 8.0 * scale;
+	let arm_wide = if arm_thin { 3.0 } else { 4.0 } * scale;
+	let arm_thick = 4.0 * scale;
+	let arm_height = 12.0 * scale;
+	let leg_width = 4.0 * scale;
+	let leg_height = 12.0 * scale;
+	let body_width = 8.0 * scale;
+	let body_thick = 4.0 * scale;
+	let body_height = 12.0 * scale;
 
-	let HEAD_TEX =
+	let head_tex =
 	[
-		t(8.0, 8.0, 8.0, 8.0), t(24.0, 8.0, 8.0, 8.0),
-		t(16.0, 8.0, 8.0, 8.0), t(0.0, 8.0, 8.0, 8.0),
-		t(8.0, 0.0, 8.0, 8.0), t(16.0, 0.0, 8.0, 8.0)
+		t(8, 8, 8, 8), t(24, 8, 8, 8),
+		t(16, 8, 8, 8), t(0, 8, 8, 8),
+		t(8, 0, 8, 8), t(16, 0, 8, 8)
 	];
 
-	let RIGHT_LEG_TEX = [
-		t(4.0, 20.0, 4.0, 12.0), t(12.0, 20.0, 4.0, 12.0),
-		t(0.0, 20.0, 4.0, 12.0), t(8.0, 20.0, 4.0, 12.0),
-		t(4.0, 16.0, 4.0, 4.0),  t(8.0, 16.0, 4.0, 4.0)
+	let right_leg_tex =
+	[
+		t(4, 20, 4, 12), t(12, 20, 4, 12),
+		t(0, 20, 4, 12), t(8, 20, 4, 12),
+		t(4, 16, 4, 4),  t(8, 16, 4, 4)
 	];
 
-	let LEFT_LEG_TEX = [
-		t(20.0, 52.0, 4.0, 12.0), t(28.0, 52.0, 4.0, 12.0),
-		t(16.0, 52.0, 4.0, 12.0), t(24.0, 52.0, 4.0, 12.0),
-		t(20.0, 48.0, 4.0, 4.0),  t(24.0, 48.0, 4.0, 4.0)
+	let left_leg_tex =
+	[
+		t(20, 52, 4, 12), t(28, 52, 4, 12),
+		t(16, 52, 4, 12), t(24, 52, 4, 12),
+		t(20, 48, 4, 4),  t(24, 48, 4, 4)
 	];
 
-	let BODY_TEX = [
-		t(20.0, 20.0, 8.0, 12.0), t(32.0, 20.0, 8.0, 12.0),
-		t(16.0, 20.0, 4.0, 12.0), t(28.0, 20.0, 4.0, 12.0),
-		t(20.0, 16.0, 8.0, 4.0),  t(28.0, 16.0, 8.0, 4.0)
+	let body_tex =
+	[
+		t(20, 20, 8, 12), t(32, 20, 8, 12),
+		t(16, 20, 4, 12), t(28, 20, 4, 12),
+		t(20, 16, 8, 4),  t(28, 16, 8, 4)
 	];
 
-	let LEFT_ARM_TEX = [
-		t(36.0, 52.0, 4.0, 12.0), t(44.0, 52.0, 4.0, 12.0),
-		t(32.0, 52.0, 4.0, 12.0), t(40.0, 52.0, 4.0, 12.0),
-		t(36.0, 48.0, 4.0, 4.0),  t(40.0, 48.0, 4.0, 4.0)
+	let left_arm_tex =
+	[
+		t(36, 52, 4, 12), t(44, 52, 4, 12),
+		t(32, 52, 4, 12), t(40, 52, 4, 12),
+		t(36, 48, 4, 4),  t(40, 48, 4, 4)
 	];
 
-	let RIGHT_ARM_TEX = [
-		t(44.0, 20.0, 4.0, 12.0), t(52.0, 20.0, 4.0, 12.0),
-		t(40.0, 20.0, 4.0, 12.0), t(48.0, 20.0, 4.0, 12.0),
-		t(44.0, 16.0, 4.0, 4.0),  t(48.0, 16.0, 4.0, 4.0)
+	let right_arm_tex =
+	[
+		t(44, 20, 4, 12), t(52, 20, 4, 12),
+		t(40, 20, 4, 12), t(48, 20, 4, 12),
+		t(44, 16, 4, 4),  t(48, 16, 4, 4)
 	];
 
-	let LEFT_ARM_TEX_SLIM = [
-		t(36.0, 52.0, 3.0, 12.0), t(43.0, 52.0, 3.0, 12.0),
-		t(32.0, 52.0, 4.0, 12.0), t(39.0, 52.0, 4.0, 12.0),
-		t(36.0, 48.0, 3.0, 4.0),  t(39.0, 48.0, 3.0, 4.0)
+	let left_arm_tex_slim =
+	[
+		t(36, 52, 3, 12), t(43, 52, 3, 12),
+		t(32, 52, 4, 12), t(39, 52, 4, 12),
+		t(36, 48, 3, 4),  t(39, 48, 3, 4)
 	];
 
-	let RIGHT_ARM_TEX_SLIM = [
-		t(44.0, 20.0, 3.0, 12.0), t(51.0, 20.0, 3.0, 12.0),
-		t(40.0, 20.0, 4.0, 12.0), t(47.0, 20.0, 4.0, 12.0),
-		t(44.0, 16.0, 3.0, 4.0),  t(47.0, 16.0, 3.0, 4.0)
+	let right_arm_tex_slim =
+	[
+		t(44, 20, 3, 12), t(51, 20, 3, 12),
+		t(40, 20, 4, 12), t(47, 20, 4, 12),
+		t(44, 16, 3, 4),  t(47, 16, 3, 4)
 	];
 
 	// Legs
-	draw_tex_cube(pos + vec3(-LEG_WIDTH, 0.0, -LEG_WIDTH / 2.0),
-		vec3(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH),
+	draw_tex_cube(pos + vec3(-leg_width, 0.0, -leg_width / 2.0),
+		vec3(leg_width, leg_height, leg_width),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, LEFT_LEG_TEX);
+		texture, left_leg_tex);
 
-	draw_tex_cube(pos + vec3(0.0, 0.0, -LEG_WIDTH / 2.0),
-		vec3(LEG_WIDTH, LEG_HEIGHT, LEG_WIDTH),
+	draw_tex_cube(pos + vec3(0.0, 0.0, -leg_width / 2.0),
+		vec3(leg_width, leg_height, leg_width),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, RIGHT_LEG_TEX);
+		texture, right_leg_tex);
 
 	// Arms
-	draw_tex_cube(pos + vec3(-LEG_WIDTH - ARM_WIDE, LEG_HEIGHT, -ARM_THICK / 2.0),
-		vec3(ARM_WIDE, ARM_HEIGHT, ARM_THICK),
+	draw_tex_cube(pos + vec3(-leg_width - arm_wide, leg_height, -arm_thick / 2.0),
+		vec3(arm_wide, arm_height, arm_thick),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, if arm_thin { RIGHT_ARM_TEX_SLIM } else { RIGHT_ARM_TEX });
+		texture, if arm_thin { right_arm_tex_slim } else { right_arm_tex });
 
-	draw_tex_cube(pos + vec3(LEG_WIDTH, LEG_HEIGHT, -ARM_THICK / 2.0),
-		vec3(ARM_WIDE, ARM_HEIGHT, ARM_THICK),
+	draw_tex_cube(pos + vec3(leg_width, leg_height, -arm_thick / 2.0),
+		vec3(arm_wide, arm_height, arm_thick),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, if arm_thin { LEFT_ARM_TEX_SLIM } else { LEFT_ARM_TEX });
+		texture, if arm_thin { left_arm_tex_slim } else { left_arm_tex });
 
 	// Body
-	draw_tex_cube(pos + vec3(-BODY_WIDTH / 2.0, LEG_HEIGHT, -BODY_THICK / 2.0),
-		vec3(BODY_WIDTH, BODY_HEIGHT, BODY_THICK),
+	draw_tex_cube(pos + vec3(-body_width / 2.0, leg_height, -body_thick / 2.0),
+		vec3(body_width, body_height, body_thick),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, BODY_TEX);
+		texture, body_tex);
 
 	// Head
-	draw_tex_cube(pos + vec3(-HEAD_SIZE / 2.0, LEG_HEIGHT + BODY_HEIGHT, -HEAD_SIZE / 2.0),
-		vec3(HEAD_SIZE, HEAD_SIZE, HEAD_SIZE),
+	draw_tex_cube(pos + vec3(-head_size / 2.0, leg_height + body_height, -head_size / 2.0),
+		vec3(head_size, head_size, head_size),
 		vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0),
-		texture, HEAD_TEX);
+		texture, head_tex);
 }
 
-fn render_scene(cabins: &[Cabin], floor: &[Floor])
+fn render_scene(cabins: &[Cabin], floors: &[Floor])
 {
 	let w = CABIN_STEP * (NUM_CABINS - 1) as f32 + WIDTH + 2.0 * WALL;
 
-	for i in 0..NUM_LEVELS
+	for (i, floor) in floors.iter().enumerate().take(NUM_FLOORS)
 	{
-		let y = i as f32 * LEVEL_HEIGHT - WALL;
+		let y = i as f32 * FLOOR_HEIGHT - WALL;
 
 		draw_cube_with_outline(vec3(0.0, y, 0.0),
 			vec3(w, WALL, FLOOR_D), PL_COLOR);
@@ -417,21 +427,21 @@ fn render_scene(cabins: &[Cabin], floor: &[Floor])
 		draw_cube_with_outline(vec3(w - WALL - DOOR_X, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
 			vec3(WALL + DOOR_X, HEIGHT, WALL), PL_COLOR);
 
-		for i in 0..NUM_CABINS - 1
+		for j in 0..NUM_CABINS - 1
 		{
-			draw_cube_with_outline(vec3(WALL + WIDTH - DOOR_X + i as f32 * CABIN_STEP, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
+			draw_cube_with_outline(vec3(WALL + WIDTH - DOOR_X + j as f32 * CABIN_STEP, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
 				vec3(CABIN_STEP - WIDTH + 2.0 * DOOR_X, HEIGHT, WALL), PL_COLOR);
 		}
 
 		for j in 0..NUM_CABINS
 		{
-			draw_door(vec3(j as f32 * CABIN_STEP + WALL, y + WALL, FLOOR_D - WALL), floor[i].doors[j], PD_COLOR);
+			draw_door(vec3(j as f32 * CABIN_STEP + WALL, y + WALL, FLOOR_D - WALL), floor.doors[j], PD_COLOR);
 		}
 	}
 
-	for i in 0..NUM_CABINS
+	for (i, cabin) in cabins.iter().enumerate()
 	{
-		draw_elevator(vec3(i as f32 * CABIN_STEP + WALL, cabins[i].y, FLOOR_D + GAP), cabins[i].door);
+		draw_elevator(vec3(i as f32 * CABIN_STEP + WALL, cabin.y, FLOOR_D + GAP), cabin.door);
 	}
 }
 
@@ -469,7 +479,7 @@ fn update(cabins: &mut [Cabin], floors: &mut [Floor])
 			},
 			CabinState::Moving =>
 			{
-				let target_y = cabin.target as f32 * LEVEL_HEIGHT;
+				let target_y = cabin.target as f32 * FLOOR_HEIGHT;
 				if cabin.y < target_y
 				{
 					cabin.y += CABIN_SPEED * t;
@@ -507,8 +517,7 @@ fn manual_control(sel_cabin: &mut usize, cabins: &mut [Cabin])
 
 	if let Some(sel_target) = sel_target
 	{
-		let mut cabin = &mut cabins[*sel_cabin];
-
+		let cabin = &mut cabins[*sel_cabin];
 		if cabin.state == CabinState::Stopped && cabin.target != sel_target
 		{
 			cabin.target = sel_target;
@@ -517,33 +526,38 @@ fn manual_control(sel_cabin: &mut usize, cabins: &mut [Cabin])
 	}
 }
 
-async fn load_skins() -> Vec<Texture2D>
+struct Player
+{
+	slim: bool,
+	texture: Texture2D
+}
+
+async fn load_players() -> Vec<Player>
 {
 	let filenames =
 	[
-		"assets/alex.png",
-		"assets/black_boy.png",
-		"assets/blueberry_girl.png",
-		"assets/kiki.png",
-		"assets/mcd.png",
-		"assets/pink.png",
-		"assets/asuka.png",
-		"assets/black_hair.png",
-		"assets/cap.png",
-		"assets/luffy.png",
-		"assets/miku.png",
-		"assets/steve.png",
+		("assets/alex.png", true),
+		("assets/black_boy.png", false),
+		("assets/blueberry_girl.png", true),
+		("assets/kiki.png", true),
+		("assets/pink.png", true),
+		("assets/asuka.png", true),
+		("assets/black_hair.png", true),
+		("assets/cap.png", false),
+		("assets/luffy.png", false),
+		("assets/miku.png", false),
+		("assets/steve.png", false),
 	];
 
-	let mut skins = Vec::with_capacity(12);
-	for filenamed in filenames
+	let mut players = Vec::with_capacity(12);
+	for (filename, slim) in filenames
 	{
 		let texture = load_texture(filename).await.unwrap();
 		texture.set_filter(FilterMode::Nearest);
-		skins.push(texture);
+		players.push(Player { slim, texture });
 	}
 
-	skins
+	players
 }
 
 #[macroquad::main("Fahrstuhl")]
@@ -552,7 +566,7 @@ async fn main()
 	let mut camera_params = CameraParams::new(vec3(0.0, 1.5, 5.0));
 
 	let mut cabins: [Cabin; NUM_CABINS] = [Cabin::new(); NUM_CABINS];
-	let mut floors: [Floor; NUM_LEVELS] = [Floor::new(); NUM_LEVELS];
+	let mut floors: [Floor; NUM_FLOORS] = [Floor::new(); NUM_FLOORS];
 
 	for i in 0..NUM_CABINS
 	{
@@ -560,7 +574,7 @@ async fn main()
 	}
 
 	let mut sel_cabin = 0;
-	let textures = load_skins().await;
+	let players = load_players().await;
 
 	loop
 	{
@@ -572,14 +586,10 @@ async fn main()
 		manual_control(&mut sel_cabin, &mut cabins);
 		update(&mut cabins, &mut floors);
 
-		let t = get_time().sin().abs() as f32;
-		let ey = get_time().sin().abs() as f32 * LEVEL_HEIGHT * (NUM_LEVELS - 1) as f32;
-
 		render_scene(&cabins, &floors);
-
-		for i in 0..12
+		for (i, player) in players.iter().enumerate()
 		{
-			draw_person(vec3(i as f32, 0.0, 0.0), 0.03, false, &textures[i]);
+			draw_person(vec3(i as f32, 0.0, 0.0), 0.03, player.slim, &player.texture);
 		}
 
 		set_default_camera();
