@@ -8,7 +8,7 @@ pub fn draw_cube_colored(a: Vec3, b: Vec3, color: Color)
 }
 
 pub fn draw_cube_textured(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3,
-	atlas: &Texture2D, rect: [Rect; 6])
+	atlas: &Texture2D, rect: [Rect; 6], scale: f32)
 {
 	let rotation_matrix = Mat4::from_rotation_z(rotation.z) *
 		Mat4::from_rotation_y(rotation.y) * Mat4::from_rotation_x(rotation.x);
@@ -16,8 +16,8 @@ pub fn draw_cube_textured(pos: Vec3, size: Vec3, rot_point: Vec3, rotation: Vec3
 	let transform = Mat4::from_translation(rot_point) *
 		rotation_matrix * Mat4::from_translation(-rot_point);
 
-	let (x0, y0, z0) = (pos.x, pos.y, pos.z);
-	let (x1, y1, z1) = (pos.x + size.x, pos.y + size.y, pos.z + size.z);
+	let (x0, y0, z0) = (pos.x - scale, pos.y - scale, pos.z - scale);
+	let (x1, y1, z1) = (pos.x + size.x + scale, pos.y + size.y + scale, pos.z + size.z + scale);
 
 	let faces: [[Vec3; 4]; 6] =
 	[
