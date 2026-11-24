@@ -1,13 +1,23 @@
+use std::thread;
+use std::sync::mpsc;
+use std::collections::HashSet;
+use std::time::Duration;
 use macroquad::prelude::*;
+use crate::constants::*;
 use crate::cube::*;
+use crate::skin::*;
+use crate::render::*;
+use crate::event::*;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum PlayerState
 {
 	Idle,
+	GotoCabin,
 	Entering,
 	Riding,
 	Leaving,
+	GotoEnd,
 	End
 }
 
@@ -19,7 +29,176 @@ pub struct Player
 	pub walking: bool,
 	pub skin_id: usize,
 	pub state: PlayerState,
+	pub cabin_id: usize,
 	pub goal_floor: usize
+}
+
+pub struct PlayerVisual
+{
+	pub pos: Vec3,
+	pub rot: f32,
+	pub skin_id: usize,
+	pub goal_floor: usize
+}
+
+impl PlayerVisual
+{
+	pub fn draw(&self, skins: &[Skin])
+	{
+		let skin = &skins[self.skin_id];
+		draw_player(self.pos, self.rot, skin.slim, &skin.texture);
+		draw_digit(self.pos + vec3(0.0, 1.0, 0.0), WHITE, self.goal_floor + 1, 0.1);
+	}
+}
+
+fn choose_target_floor(cur: usize) -> usize
+{
+	let mut goal;
+	while {
+		goal = rand::gen_range(0, NUM_FLOORS);
+		goal == cur
+	} {}
+
+	goal
+}
+
+fn choose_skin(used_skins: &mut HashSet<usize>, max_players: usize) -> usize
+{
+	let mut skin_id;
+	while {
+		skin_id = rand::gen_range(0, max_players);
+		used_skins.contains(&skin_id)
+	} {}
+
+	used_skins.insert(skin_id);
+	skin_id
+}
+
+pub fn draw_players<'a>(players: impl IntoIterator<Item = &'a PlayerVisual>,
+	skins: &[Skin])
+{
+	for player in players
+	{
+		player.draw(skins);
+	}
+}
+
+pub fn spawn_players(used_skins: &mut HashSet<usize>,
+	max_players: usize, tx: &mpsc::Sender<Event>)
+{
+	if used_skins.len() < max_players &&
+		rand::gen_range(0.0, 1.0) < get_frame_time() * SPAWN_RATE
+	{
+		Player::new(used_skins, max_players, tx);
+	}
+}
+
+impl Player
+{
+	pub fn new<'a>(players: &mut HashSet<usize>,
+		max_players: usize,
+		txr: &mpsc::Sender<Event>)
+	{
+		let floor = rand::gen_range(0, NUM_FLOORS);
+		let y = floor as f32 * FLOOR_HEIGHT;
+		let skin_id = choose_skin(players, max_players);
+
+		let mut player = Player {
+			pos: vec3(0.0, y, 0.0),
+			target_pos: vec3(0.0, y, 0.0),
+			rot: 0.0,
+			walking: false,
+			skin_id,
+			state: PlayerState::Idle,
+			cabin_id: 0,
+			goal_floor: choose_target_floor(floor)
+		};
+
+		let tx = txr.clone();
+		thread::spawn(move ||
+		{
+			let thread_id = thread::current().id();
+			let _ = tx.send(Event::PlayerRequest(HallRequest {
+				from: floor,
+				up: player.goal_floor > floor
+			}));
+			loop
+			{
+				match player.state
+				{
+					PlayerState::Idle =>
+					{
+						if player.pos.distance(player.target_pos) < 0.3
+						{
+							player.target_pos = vec3(
+								rand::gen_range(FLOOR_BORDER, FLOOR_W - FLOOR_BORDER),
+								player.pos.y,
+								rand::gen_range(FLOOR_BORDER, FLOOR_D - FLOOR_BORDER));
+						}
+					},
+					PlayerState::GotoCabin =>
+					{
+
+					},
+					PlayerState::Entering =>
+					{
+						let entered = false;
+						if entered
+						{
+							player.state = PlayerState::Riding;
+							let _ = tx.send(Event::ButtonPressed(ElevatorRequest {
+								cabin: player.cabin_id,
+								to: player.goal_floor
+							}));
+						}
+					},
+					PlayerState::Riding =>
+					{
+						// Do Nothing, until arrive
+					},
+					PlayerState::Leaving =>
+					{
+
+					},
+					PlayerState::GotoEnd =>
+					{
+
+					},
+					PlayerState::End =>
+					{
+						let _ = tx.send(Event::PlayerDespawn(thread_id));
+						return;
+					}
+				}
+
+				if player.pos.distance(player.target_pos) < 0.3
+				{
+					player.walking = false;
+				}
+				else
+				{
+					player.walking = true;
+
+					let dir = (player.target_pos - player.pos).normalize();
+					let upd = dir * 0.02 * PLAYER_SPEED;
+
+					player.rot = f32::atan2(dir.x, dir.z);
+					player.pos += upd;
+				}
+
+				let _ = tx.send(Event::PlayerUpdate(thread_id,
+					PlayerVisual
+					{
+						pos: player.pos,
+						rot: player.rot,
+						skin_id: player.skin_id,
+						goal_floor: player.goal_floor
+					}));
+
+				thread::sleep(Duration::from_millis(20));
+			}
+		});
+	}
 }
 
 const fn t(x: i32, y: i32, w: i32, h: i32) -> Rect

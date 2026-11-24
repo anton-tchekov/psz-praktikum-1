@@ -89,6 +89,10 @@ pub fn draw_elevator(pos: Vec3, door: f32)
 	draw_inner_outline(pos, EPS, HEIGHT - 2.0 * WALL - EPS);
 
 	draw_door(pos, door, DOOR_COLOR);
+
+	// Current floor indicator
+	let floor = (pos.y / FLOOR_HEIGHT).round() as usize + 1;
+	draw_digit(pos + vec3(WIDTH / 2.0, 1.5, DEPTH - 2.0 * WALL), RED, floor, 0.05);
 }
 
 pub fn draw_indicator(pos: Vec3, color: Color, size: f32)
@@ -168,6 +172,7 @@ pub fn draw_scene(cabins: &[Cabin], floors: &[Floor])
 
 	for (i, cabin) in cabins.iter().enumerate()
 	{
-		draw_elevator(vec3(i as f32 * CABIN_STEP + WALL, cabin.y, FLOOR_D + GAP), cabin.door);
+		draw_elevator(vec3(i as f32 * CABIN_STEP + WALL, cabin.y, FLOOR_D + GAP),
+			cabin.door);
 	}
 }

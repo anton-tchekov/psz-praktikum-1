@@ -15,8 +15,8 @@ impl Floor
 		Self
 		{
 			doors: [1.0; NUM_CABINS],
-			indicator_up_on: true,
-			indicator_down_on: true
+			indicator_up_on: false,
+			indicator_down_on: false
 		}
 	}
 }

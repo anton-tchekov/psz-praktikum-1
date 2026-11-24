@@ -4,6 +4,8 @@ pub const EPS: f32 = 0.003;
 
 pub const SPAWN_RATE: f32 = 1.2; // Hz (Average)
 
+pub const DOOR_CLOSE_TIMEOUT: f32 = 3.0;
+
 pub const NUM_CABINS: usize = 3;
 pub const NUM_FLOORS: usize = 4;
 
