@@ -130,18 +130,16 @@ pub fn draw_digit(pos: Vec3, color: Color, digit: usize, size: f32)
 
 pub fn draw_scene(cabins: &[Cabin], floors: &[Floor])
 {
-	let w = CABIN_STEP * (NUM_CABINS - 1) as f32 + WIDTH + 2.0 * WALL;
-
 	for (i, floor) in floors.iter().enumerate().take(NUM_FLOORS)
 	{
 		let y = i as f32 * FLOOR_HEIGHT - WALL;
 
 		draw_cube_with_outline(vec3(0.0, y, 0.0),
-			vec3(w, WALL, FLOOR_D), PL_COLOR);
+			vec3(FLOOR_W, WALL, FLOOR_D), PL_COLOR);
 
 		draw_cube_with_outline(vec3(0.0, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
 			vec3(WALL + DOOR_X, HEIGHT, WALL), PL_COLOR);
-		draw_cube_with_outline(vec3(w - WALL - DOOR_X, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
+		draw_cube_with_outline(vec3(FLOOR_W - WALL - DOOR_X, y + WALL + 2.0 * EPS, FLOOR_D - WALL),
 			vec3(WALL + DOOR_X, HEIGHT, WALL), PL_COLOR);
 
 		for j in 0..NUM_CABINS - 1

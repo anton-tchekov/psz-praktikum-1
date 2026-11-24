@@ -1,12 +1,25 @@
 use macroquad::prelude::*;
 use crate::cube::*;
 
+#[derive(Copy, Clone, PartialEq)]
+pub enum PlayerState
+{
+	Idle,
+	Entering,
+	Riding,
+	Leaving,
+	End
+}
+
 pub struct Player
 {
-	pos: Vec3,
-	rot: f32,
-	walking: bool,
-	skin_id: usize
+	pub target_pos: Vec3,
+	pub pos: Vec3,
+	pub rot: f32,
+	pub walking: bool,
+	pub skin_id: usize,
+	pub state: PlayerState,
+	pub goal_floor: usize
 }
 
 const fn t(x: i32, y: i32, w: i32, h: i32) -> Rect

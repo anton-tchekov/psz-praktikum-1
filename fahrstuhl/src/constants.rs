@@ -2,8 +2,15 @@ use macroquad::prelude::*;
 
 pub const EPS: f32 = 0.003;
 
+pub const SPAWN_RATE: f32 = 1.2; // Hz (Average)
+
 pub const NUM_CABINS: usize = 3;
 pub const NUM_FLOORS: usize = 4;
+
+pub const FLOOR_BORDER: f32 = 0.5;
+pub const FLOOR_W: f32 = CABIN_STEP * (NUM_CABINS - 1) as f32 + WIDTH + 2.0 * WALL;
+
+pub const PLAYER_SPEED: f32 = 1.0;
 
 pub const WALL: f32 = 0.05;
 pub const HEIGHT: f32 = 2.0;
